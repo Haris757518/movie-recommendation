@@ -27,15 +27,29 @@ function resolveApiBase() {
   if (configured) return configured;
 
   const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-  return isLocal ? LOCAL_API_BASE : 'https://your-backend.onrender.com/api';
+  return isLocal ? LOCAL_API_BASE : 'https://movie-recommendation-bkup.onrender.com/api';
 }
 
 const API_BASE = resolveApiBase();
+window.__API_BASE__ = API_BASE;
 
 function rewriteApiUrl(input) {
   if (typeof input !== 'string') return input;
-  if (!input.startsWith(LOCAL_API_BASE)) return input;
-  return `${API_BASE}${input.slice(LOCAL_API_BASE.length)}`;
+
+  const localOrigin = 'http://localhost:5000';
+  if (input.startsWith(LOCAL_API_BASE)) {
+    return `${API_BASE}${input.slice(LOCAL_API_BASE.length)}`;
+  }
+
+  if (input.startsWith(`${localOrigin}/api`)) {
+    return `${API_BASE}${input.slice(`${localOrigin}/api`.length)}`;
+  }
+
+  if (input.startsWith('/api')) {
+    return `${API_BASE}${input.slice(4)}`;
+  }
+
+  return input;
 }
 
 const nativeFetch = window.fetch.bind(window);
@@ -43,6 +57,14 @@ window.fetch = function wrappedFetch(input, init) {
   if (typeof input === 'string') {
     return nativeFetch(rewriteApiUrl(input), init);
   }
+
+  if (input instanceof Request) {
+    const rewrittenUrl = rewriteApiUrl(input.url);
+    if (rewrittenUrl !== input.url) {
+      return nativeFetch(new Request(rewrittenUrl, input), init);
+    }
+  }
+
   return nativeFetch(input, init);
 };
 
@@ -199,7 +221,7 @@ const THEME_IMMERSION = {
     characterAlt: 'Eleven cinematic presence',
     dialogues: [
       'I can feel it...',
-      'Something is wrong.',
+      'The Upside Down is close.',
       'He is here...'
     ],
     eventText: 'RUN.',
