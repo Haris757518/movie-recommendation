@@ -32,21 +32,21 @@
 
       <div id="movieContainer" aria-live="polite">
         <article class="movie-card">
-          <img src="https://via.placeholder.com/300x450?text=No+Image" alt="Poster for Inception" />
+          <img src="https://dummyimage.com/300x450/111/fff&text=No+Image" alt="Poster for Inception" />
           <h3>Inception</h3>
           <p>Genre: Sci-Fi, Thriller</p>
           <p aria-label="Movie rating">Rating: 8.8/10</p>
         </article>
 
         <article class="movie-card">
-          <img src="https://via.placeholder.com/300x450?text=No+Image" alt="Poster for The Dark Knight" />
+          <img src="https://dummyimage.com/300x450/111/fff&text=No+Image" alt="Poster for The Dark Knight" />
           <h3>The Dark Knight</h3>
           <p>Genre: Action, Crime</p>
           <p aria-label="Movie rating">Rating: 9.0/10</p>
         </article>
 
         <article class="movie-card">
-          <img src="https://via.placeholder.com/300x450?text=No+Image" alt="Poster for Interstellar" />
+          <img src="https://dummyimage.com/300x450/111/fff&text=No+Image" alt="Poster for Interstellar" />
           <h3>Interstellar</h3>
           <p>Genre: Adventure, Drama</p>
           <p aria-label="Movie rating">Rating: 8.7/10</p>
@@ -54,6 +54,23 @@
       </div>
     </section>
   </main>
+
+  <div class="modal fade" id="apiKeyModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Set API Key</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <input type="text" id="apiKeyInput" class="form-control" placeholder="Enter API key" />
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" onclick="saveApiKey()">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <footer>
     <p>&copy; 2026 Movie Recommender. All rights reserved.</p>

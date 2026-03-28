@@ -1036,7 +1036,10 @@ function showMoviesLoading(show) {
    API KEY MODAL
    =================================================== */
 function showApiKeyModal() {
-  const modal = new bootstrap.Modal(document.getElementById('apiKeyModal'));
+  const el = document.getElementById('apiKeyModal');
+  if (!el || typeof bootstrap === 'undefined') return;
+
+  const modal = new bootstrap.Modal(el);
   modal.show();
 }
 
