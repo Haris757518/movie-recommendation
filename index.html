@@ -1,82 +1,793 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Movie Recommender web app with searchable movie cards." />
-  <title>Movie Recommender</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <meta name="description" content="House of Digital Kino. Find Your Next Obsession." />
+  <title>House of Digital Kino</title>
   <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/3178/3178283.png" />
-  <link rel="stylesheet" href="style.css" />
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&family=Orbitron:wght@400;700;900&family=Creepster&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="main.css" />
+  <style>
+    .lang-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border: 1px solid var(--border-color, #334155);
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: background 0.15s, border-color 0.15s;
+      user-select: none;
+    }
+    .lang-chip input { display: none; }
+    .lang-chip:has(input:checked) {
+      background: var(--accent, #f59e0b);
+      border-color: var(--accent, #f59e0b);
+      color: #000;
+      font-weight: 600;
+    }
+    .lang-chip:hover { border-color: var(--accent, #f59e0b); }
+  </style>
 </head>
 <body>
-  <header>
-    <nav aria-label="Main navigation">
-      <h1>Movie Recommender</h1>
-      <form role="search" aria-label="Search movies">
-        <label for="movieSearch">Search movies</label>
-        <input
-          type="search"
-          id="movieSearch"
-          name="movieSearch"
-          placeholder="Search by title or genre"
-          autocomplete="off"
-        />
-      </form>
-    </nav>
-  </header>
 
-  <main>
-    <section aria-labelledby="recommendationsTitle">
-      <h2 id="recommendationsTitle">Recommended Movies</h2>
-
-      <div id="movieContainer" aria-live="polite">
-        <article class="movie-card">
-          <img src="https://dummyimage.com/300x450/111/fff&text=No+Image" alt="Poster for Inception" />
-          <h3>Inception</h3>
-          <p>Genre: Sci-Fi, Thriller</p>
-          <p aria-label="Movie rating">Rating: 8.8/10</p>
-        </article>
-
-        <article class="movie-card">
-          <img src="https://dummyimage.com/300x450/111/fff&text=No+Image" alt="Poster for The Dark Knight" />
-          <h3>The Dark Knight</h3>
-          <p>Genre: Action, Crime</p>
-          <p aria-label="Movie rating">Rating: 9.0/10</p>
-        </article>
-
-        <article class="movie-card">
-          <img src="https://dummyimage.com/300x450/111/fff&text=No+Image" alt="Poster for Interstellar" />
-          <h3>Interstellar</h3>
-          <p>Genre: Adventure, Drama</p>
-          <p aria-label="Movie rating">Rating: 8.7/10</p>
-        </article>
-      </div>
-    </section>
-  </main>
-
-  <div class="modal fade" id="apiKeyModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title">Set API Key</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+  <!-- API KEY SETUP MODAL -->
+  <div class="modal fade" id="apiKeyModal" tabindex="-1" aria-labelledby="apiKeyModalLabel" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content api-modal-content">
+        <div class="modal-header border-0 pb-0">
+          <h5 class="modal-title" id="apiKeyModalLabel"><i class="bi bi-key-fill accent-text me-2"></i>Enter TMDB API Key</h5>
         </div>
         <div class="modal-body">
-          <input type="text" id="apiKeyInput" class="form-control" placeholder="Enter API key" />
+          <p class="text-muted small mb-3">Get your free key at <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer" class="accent-link">themoviedb.org</a></p>
+          <input type="text" class="form-control custom-input" id="apiKeyInput" placeholder="Paste your TMDB API key here…" />
+          <div class="form-check mt-3">
+            <input class="form-check-input" type="checkbox" id="saveKeyCheck" checked />
+            <label class="form-check-label small text-muted" for="saveKeyCheck">Remember key in this browser</label>
+          </div>
         </div>
-        <div class="modal-footer">
-          <button class="btn btn-primary" onclick="saveApiKey()">Save</button>
+        <div class="modal-footer border-0">
+          <button type="button" class="btn btn-outline-custom btn-sm" data-bs-dismiss="modal" onclick="loadWithLocalData()">Skip (use local data)</button>
+          <button type="button" class="btn btn-primary-custom btn-sm" onclick="saveApiKey()"><i class="bi bi-check-lg me-1"></i>Connect & Load</button>
         </div>
       </div>
     </div>
   </div>
 
-  <footer>
-    <p>&copy; 2026 Movie Recommender. All rights reserved.</p>
-  </footer>
+  <!-- NAVBAR -->
+  <nav class="navbar navbar-expand-lg sticky-top" id="mainNavbar">
+    <div class="container-xl">
+      <a class="navbar-brand d-flex align-items-center gap-2" href="#" onclick="showHome(); return false;">
+        <span class="brand-icon"><i class="bi bi-film brand-logo-glyph"></i></span>
+        <span class="brand-text">HDK</span>
+      </a>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <div class="collapse navbar-collapse" id="navbarContent">
+        <ul class="navbar-nav me-auto gap-1">
+          <li class="nav-item">
+            <a class="nav-link nav-home" href="#" onclick="showHome(); return false;">
+              <i class="bi bi-house me-1"></i>Home
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link nav-movies" href="#" onclick="showMoviesPage(); return false;">
+              <i class="bi bi-film me-1"></i>Movies
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link nav-series" href="#" onclick="showSeriesPage(); return false;">
+              <i class="bi bi-tv me-1"></i>Series
+            </a>
+          </li>
+          <li class="nav-item"><a class="nav-link" href="#" onclick="scrollToWatchlist(); return false;"><i class="bi bi-bookmark-heart me-1"></i>Watchlist</a></li>
+          <li class="nav-item"><a class="nav-link" href="#" onclick="scrollToReviews(); return false;"><i class="bi bi-chat-square-text me-1"></i>Reviews</a></li>
+        </ul>
+
+        <div class="d-flex align-items-center gap-2 me-2">
+          <div class="search-wrapper">
+            <i class="bi bi-search search-icon"></i>
+            <input type="search" id="searchInput" class="form-control search-input"
+              placeholder="Search movies, actors, directors…" autocomplete="off" />
+            <div id="searchDropdown" class="search-dropdown"></div>
+          </div>
+        </div>
+
+        <!-- Theme Switcher -->
+        <div class="theme-switcher dropdown me-2">
+          <button class="btn btn-theme-toggle dropdown-toggle" id="themeDropdownBtn" data-bs-toggle="dropdown" title="Change theme">
+            <i class="bi bi-palette-fill" id="themeIcon"></i>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end theme-menu">
+            <li><h6 class="dropdown-header">Choose Theme</h6></li>
+            <li><button class="dropdown-item theme-option" data-theme="dark"><span class="theme-dot dark-dot"></span> Dark Cinema</button></li>
+            <li><button class="dropdown-item theme-option" data-theme="neon"><span class="theme-dot neon-dot"></span> Neon Grid</button></li>
+            <li><button class="dropdown-item theme-option" data-theme="stranger"><span class="theme-dot stranger-dot"></span> Upside Down</button></li>
+            <li><button class="dropdown-item theme-option" data-theme="got"><span class="theme-dot got-dot"></span> Game of Thrones</button></li>
+            <li><button class="dropdown-item theme-option" data-theme="hp"><span class="theme-dot hp-dot"></span> ⚡ Wizarding World</button></li>
+          </ul>
+        </div>
+
+        <button class="btn btn-sm btn-outline-custom" onclick="showApiKeyModal()" title="Change API Key">
+          <i class="bi bi-key"></i>
+        </button>
+
+        <button class="btn btn-sm btn-outline-custom" id="authBtn" onclick="openAuthModal()" title="Sign in">
+          <i class="bi bi-person-circle"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-custom" id="logoutBtn" onclick="logoutUser()" title="Logout" style="display:none">
+          <i class="bi bi-box-arrow-right"></i>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HOME PAGE -->
+  <div id="homePage">
+
+    <!-- HERO -->
+    <header class="hero-section" role="banner">
+      <div class="hero-overlay"></div>
+      <div class="hero-bg-poster" id="heroBgPoster"></div>
+      <div class="container-xl position-relative py-5">
+        <div class="row align-items-center min-vh-hero">
+          <div class="col-lg-8">
+            <span class="hero-badge mb-3 d-inline-block" id="heroBrandBadge">HDK</span>
+            <p class="hero-sub mb-2" id="welcomeBackLine" style="display:none"></p>
+            <h1 class="hero-title" id="heroHeadline"><span class="accent-text">House of Digital Kino</span></h1>
+            <p class="hero-sub mb-3" id="brandTaglineHero">Find Your Next Obsession</p>
+            <p class="hero-sub" id="heroLanguageLine">Hollywood · Bollywood · Kollywood · Tollywood · Korean · French · Spanish · And More</p>
+            <div class="d-flex flex-wrap gap-3 mt-4">
+              <button class="btn btn-primary-custom btn-lg" onclick="showMoviesPage()">
+                <i class="bi bi-play-circle-fill me-2"></i>Browse Movies
+              </button>
+              <button class="btn btn-outline-custom btn-lg" onclick="showApiKeyModal()">
+                <i class="bi bi-key me-2"></i>Set API Key
+              </button>
+            </div>
+            <div class="hero-stats mt-5 d-flex flex-wrap gap-4">
+              <div class="stat-item"><span class="stat-num" id="totalMovies">0</span><span class="stat-label">Movies Loaded</span></div>
+              <div class="stat-item"><span class="stat-num">20+</span><span class="stat-label">Languages</span></div>
+              <div class="stat-item"><span class="stat-num" id="totalReviews">0</span><span class="stat-label">Reviews</span></div>
+              <div class="stat-item"><span class="stat-num" id="watchlistCount">0</span><span class="stat-label">In Watchlist</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- TOP TRENDING SECTIONS (Home) — with language filter tabs -->
+    <section class="py-4 top-now-section" id="homeTopSection">
+      <div class="container-xl">
+        <!-- Language selector for Top 10 -->
+        <div class="top-lang-filter d-flex align-items-center gap-3 mb-4 flex-wrap">
+          <span class="filter-label"><i class="bi bi-globe2 me-1"></i>Region:</span>
+          <div class="top-lang-tabs d-flex gap-2 flex-wrap">
+            <button class="top-lang-tab active" data-region="all" onclick="setTopRegion('all', this)">🌍 Overall</button>
+            <button class="top-lang-tab" data-region="en" onclick="setTopRegion('en', this)">🎬 English</button>
+            <button class="top-lang-tab" data-region="hi" onclick="setTopRegion('hi', this)">🎭 Hindi</button>
+            <button class="top-lang-tab" data-region="ta" onclick="setTopRegion('ta', this)">🎵 Tamil</button>
+            <button class="top-lang-tab" data-region="te" onclick="setTopRegion('te', this)">🌟 Telugu</button>
+            <button class="top-lang-tab" data-region="ml" onclick="setTopRegion('ml', this)">🌴 Malayalam</button>
+            <button class="top-lang-tab" data-region="ko" onclick="setTopRegion('ko', this)">🇰🇷 Korean</button>
+            <button class="top-lang-tab" data-region="ja" onclick="setTopRegion('ja', this)">🎌 Japanese</button>
+            <button class="top-lang-tab" data-region="zh" onclick="setTopRegion('zh', this)">🐉 Chinese</button>
+            <button class="top-lang-tab" data-region="fr" onclick="setTopRegion('fr', this)">🗼 French</button>
+            <button class="top-lang-tab" data-region="es" onclick="setTopRegion('es', this)">💃 Spanish</button>
+          </div>
+        </div>
+
+        <div class="row g-4">
+          <div class="col-lg-6">
+            <div class="top-card p-3 p-md-4">
+              <div class="d-flex align-items-center justify-content-between mb-3">
+                <h2 class="section-title h5 mb-0" id="homeTopMoviesHeading"><i class="bi bi-fire me-2 accent-text"></i>🎬 Top 10 Movies Right Now</h2>
+                <span class="top-badge live-badge"><span class="live-dot"></span>LIVE</span>
+              </div>
+              <div id="topMoviesContainer" class="top-list">
+                <div class="skeleton-list"></div>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-6">
+            <div class="top-card p-3 p-md-4">
+              <div class="d-flex align-items-center justify-content-between mb-3">
+                <h2 class="section-title h5 mb-0" id="homeTopSeriesHeading"><i class="bi bi-tv me-2 accent-text"></i>📺 Top 10 Series Right Now</h2>
+                <span class="top-badge live-badge"><span class="live-dot"></span>LIVE</span>
+              </div>
+              <div id="topSeriesContainer" class="top-list">
+                <div class="skeleton-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HOME DISCOVERY ROWS (OTT-style curated sections) -->
+    <section class="py-4 home-discover-section">
+      <div class="container-xl">
+
+        <div class="mb-5 home-row" data-section-key="continueWatching" style="display:none">
+          <div class="home-row-header">
+            <h3 class="carousel-section-title mb-0">▶ Continue Watching</h3>
+            <button class="view-more-btn" onclick="expandHomeRow('homeContinueWatchingRow', 'continueWatching')">See All <i class="bi bi-chevron-down"></i></button>
+          </div>
+          <div id="homeContinueWatchingRow" class="top-list-horizontal"></div>
+          <div id="homeContinueWatchingRowExpanded" class="home-row-expanded" style="display:none"></div>
+        </div>
+
+        <div class="mb-5 home-row" data-section-key="preferredLang">
+          <div class="home-row-header">
+            <h3 class="carousel-section-title mb-0" id="preferredLangTitle">🌍 Based on Your Language</h3>
+            <button class="view-more-btn" onclick="expandHomeRow('homePreferredLangRow', 'preferredLang')">See All <i class="bi bi-chevron-down"></i></button>
+          </div>
+          <div id="homePreferredLangRow" class="top-list-horizontal"><div class="skeleton-list" style="height:220px"></div></div>
+          <div id="homePreferredLangRowExpanded" class="home-row-expanded" style="display:none"></div>
+        </div>
+
+        <div class="mb-5 home-row" data-section-key="latestPreferred">
+          <div class="home-row-header">
+            <h3 class="carousel-section-title mb-0" id="latestPreferredTitle">🆕 New for You</h3>
+            <button class="view-more-btn" onclick="expandHomeRow('homeLatestPreferredRow', 'latestPreferred')">See All <i class="bi bi-chevron-down"></i></button>
+          </div>
+          <div id="homeLatestPreferredRow" class="top-list-horizontal"><div class="skeleton-list" style="height:220px"></div></div>
+          <div id="homeLatestPreferredRowExpanded" class="home-row-expanded" style="display:none"></div>
+        </div>
+
+        <div class="mb-5 home-row" data-section-key="watchlistRow" style="display:none">
+          <div class="home-row-header">
+            <h3 class="carousel-section-title mb-0">⭐ Your Watchlist</h3>
+            <button class="view-more-btn" onclick="scrollToWatchlist()">View All <i class="bi bi-chevron-right"></i></button>
+          </div>
+          <div id="homeWatchlistRow" class="top-list-horizontal"></div>
+        </div>
+
+        <div class="mb-5 home-row" data-section-key="trending">
+          <div class="home-row-header">
+            <h3 class="carousel-section-title mb-0" id="trendingTitle">🔥 Trending Now</h3>
+            <button class="view-more-btn" onclick="expandHomeRow('homeTrendingRow', 'trending')">See All <i class="bi bi-chevron-down"></i></button>
+          </div>
+          <div id="homeTrendingRow" class="top-list-horizontal"><div class="skeleton-list" style="height:220px"></div></div>
+          <div id="homeTrendingRowExpanded" class="home-row-expanded" style="display:none"></div>
+        </div>
+
+        <!-- Dynamic per-language rows injected by JS -->
+        <div id="homeDynamicLangRows"></div>
+
+      </div>
+    </section>
+
+    <!-- WATCHLIST -->
+    <section id="watchlist" class="watchlist-section py-5">
+      <div class="container-xl">
+        <div class="section-header d-flex align-items-center justify-content-between mb-4">
+          <h2 class="section-title"><i class="bi bi-bookmark-heart-fill accent-text me-2"></i>My Watchlist</h2>
+          <button id="clearWatchlistBtn" class="btn btn-outline-custom btn-sm" onclick="clearWatchlist()" style="display:none">
+            <i class="bi bi-trash3 me-1"></i>Clear All
+          </button>
+        </div>
+        <div class="row g-3" id="watchlistContainer"></div>
+        <div id="watchlistEmpty" class="empty-state text-center py-4">
+          <i class="bi bi-bookmark display-4 mb-3 text-muted"></i>
+          <p class="text-muted">Your watchlist is empty. Click the bookmark on any movie to save it here!</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- REVIEW SECTION -->
+    <section id="review-section" class="review-section py-5">
+      <div class="container-xl">
+        <h2 class="section-title mb-4">Community Reviews</h2>
+        <div class="row g-4">
+          <div class="col-lg-5">
+            <div class="review-card p-4">
+              <h3 class="h5 mb-4"><i class="bi bi-pencil-square accent-text me-2"></i>Write a Review</h3>
+              <form id="reviewForm" novalidate>
+                <div class="mb-3">
+                  <label for="reviewerName" class="form-label">Your Name <span class="text-danger">*</span></label>
+                  <input type="text" class="form-control custom-input" id="reviewerName" placeholder="Enter your name" />
+                  <div class="invalid-feedback">Please enter your name (min. 2 characters).</div>
+                </div>
+                <div class="mb-3">
+                  <label for="reviewMovieSelect" class="form-label">Movie <span class="text-danger">*</span></label>
+                  <select class="form-select custom-input" id="reviewMovieSelect">
+                    <option value="">-- Select a movie --</option>
+                  </select>
+                  <div class="invalid-feedback">Please select a movie.</div>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">Your Rating <span class="text-danger">*</span></label>
+                  <div class="star-rating" role="radiogroup">
+                    <span class="star" data-rating="1" tabindex="0">★</span>
+                    <span class="star" data-rating="2" tabindex="0">★</span>
+                    <span class="star" data-rating="3" tabindex="0">★</span>
+                    <span class="star" data-rating="4" tabindex="0">★</span>
+                    <span class="star" data-rating="5" tabindex="0">★</span>
+                  </div>
+                  <div class="invalid-feedback" id="ratingError">Please select a rating.</div>
+                </div>
+                <div class="mb-3">
+                  <label for="reviewText" class="form-label">Review <span class="text-danger">*</span></label>
+                  <textarea class="form-control custom-input" id="reviewText" rows="4" placeholder="Share your thoughts…"></textarea>
+                  <div class="invalid-feedback">Please write a review (min. 10 characters).</div>
+                </div>
+                <button type="submit" class="btn btn-primary-custom w-100"><i class="bi bi-send me-2"></i>Submit Review</button>
+              </form>
+            </div>
+          </div>
+          <div class="col-lg-7">
+            <div id="reviewsContainer">
+              <div id="reviewsEmpty" class="text-center py-5 text-muted">
+                <i class="bi bi-chat-square-text display-4 mb-3"></i>
+                <p>No reviews yet. Be the first!</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="site-footer py-4">
+      <div class="container-xl">
+        <div class="row g-4">
+          <div class="col-md-4">
+            <div class="d-flex align-items-center gap-2 mb-3">
+              <span class="brand-icon"><i class="bi bi-film brand-logo-glyph"></i></span>
+              <span class="brand-text">House of Digital Kino</span>
+            </div>
+            <p class="text-muted small">House of Digital Kino. Find Your Next Obsession across Tamil, Telugu, Hindi, Malayalam, English, Korean, French, Spanish and more.</p>
+          </div>
+          <div class="col-md-4">
+            <h6 class="footer-heading">Quick Links</h6>
+            <ul class="list-unstyled footer-links">
+              <li><a href="#" onclick="showHome(); return false;">Home</a></li>
+              <li><a href="#" onclick="scrollToWatchlist(); return false;">My Watchlist</a></li>
+              <li><a href="#" onclick="scrollToReviews(); return false;">Write Review</a></li>
+            </ul>
+          </div>
+          <div class="col-md-4">
+            <h6 class="footer-heading">External</h6>
+            <ul class="list-unstyled footer-links">
+              <li><a href="https://www.imdb.com" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right me-1"></i>IMDb</a></li>
+              <li><a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right me-1"></i>TMDB</a></li>
+              <li><a href="https://www.netflix.com" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right me-1"></i>Netflix</a></li>
+            </ul>
+          </div>
+        </div>
+        <hr class="footer-divider" />
+        <div class="d-flex flex-wrap justify-content-between align-items-center">
+          <p class="mb-0 text-muted small">&copy; 2026 House of Digital Kino — Reg: 24BIT0468 | Haris K | BITE304L</p>
+          <p class="mb-0 text-muted small">Powered by TMDB API</p>
+        </div>
+      </div>
+    </footer>
+  </div><!-- end homePage -->
+
+  <!-- MOVIES PAGE (Top 10 + grid) -->
+  <div id="moviesPage" style="display:none">
+    <div class="page-hero movies-hero py-5">
+      <div class="container-xl">
+        <div class="d-flex align-items-center gap-3 mb-2">
+          <span class="page-hero-icon"><i class="bi bi-film"></i></span>
+          <h1 class="page-hero-title">Movies</h1>
+        </div>
+        <p class="text-muted">Top trending and all movies — filtered by language region</p>
+      </div>
+    </div>
+
+    <section class="py-4 top-now-section">
+      <div class="container-xl">
+        <div class="top-lang-filter d-flex align-items-center gap-3 mb-4 flex-wrap">
+          <span class="filter-label"><i class="bi bi-globe2 me-1"></i>Region:</span>
+          <div class="top-lang-tabs d-flex gap-2 flex-wrap">
+            <button class="top-lang-tab active" data-region="all" onclick="setMoviesRegion('all', this)">🌍 Overall</button>
+            <button class="top-lang-tab" data-region="en" onclick="setMoviesRegion('en', this)">🎬 English</button>
+            <button class="top-lang-tab" data-region="hi" onclick="setMoviesRegion('hi', this)">🎭 Hindi</button>
+            <button class="top-lang-tab" data-region="ta" onclick="setMoviesRegion('ta', this)">🎵 Tamil</button>
+            <button class="top-lang-tab" data-region="te" onclick="setMoviesRegion('te', this)">🌟 Telugu</button>
+            <button class="top-lang-tab" data-region="ml" onclick="setMoviesRegion('ml', this)">🌴 Malayalam</button>
+            <button class="top-lang-tab" data-region="kn" onclick="setMoviesRegion('kn', this)">🏔️ Kannada</button>
+            <button class="top-lang-tab" data-region="ko" onclick="setMoviesRegion('ko', this)">🇰🇷 Korean</button>
+            <button class="top-lang-tab" data-region="ja" onclick="setMoviesRegion('ja', this)">🎌 Japanese</button>
+            <button class="top-lang-tab" data-region="zh" onclick="setMoviesRegion('zh', this)">🐉 Chinese</button>
+            <button class="top-lang-tab" data-region="fr" onclick="setMoviesRegion('fr', this)">🗼 French</button>
+            <button class="top-lang-tab" data-region="es" onclick="setMoviesRegion('es', this)">💃 Spanish</button>
+          </div>
+        </div>
+        <div class="top-card p-3 p-md-4">
+          <div class="d-flex align-items-center justify-content-between mb-3">
+            <h2 class="section-title h5 mb-0" id="moviesTopHeading"><i class="bi bi-fire me-2 accent-text"></i>Top 10 Movies Right Now</h2>
+            <span class="top-badge live-badge"><span class="live-dot"></span>LIVE</span>
+          </div>
+          <div id="topMoviesPageContainer" class="top-list-horizontal">
+            <div class="skeleton-list" style="height:200px"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="py-4 filter-bar">
+      <div class="container-xl">
+        <div class="d-flex flex-wrap align-items-center gap-3">
+          <span class="filter-label"><i class="bi bi-funnel-fill me-1"></i>Filter:</span>
+          <select class="form-select genre-select" id="moviesLangFilter"><option value="all">All Languages</option></select>
+          <select class="form-select genre-select" id="moviesGenreFilter"><option value="all">All Genres</option></select>
+          <select class="form-select genre-select" id="moviesYearFilter"><option value="all">All Years</option></select>
+          <select class="form-select genre-select" id="moviesSortFilter">
+            <option value="trending">Trending</option>
+            <option value="upcoming">Upcoming</option>
+            <option value="imdb">Top Rated</option>
+            <option value="underrated">Underrated</option>
+            <option value="year">Newest First</option>
+            <option value="title">A–Z</option>
+          </select>
+          <div class="ms-auto"><span class="results-count" id="moviesResultsCount"></span></div>
+        </div>
+      </div>
+    </section>
+
+    <main class="py-5">
+      <div class="container-xl">
+        <div class="section-header d-flex align-items-center justify-content-between mb-4">
+          <h2 class="section-title">All Movies</h2>
+          <div class="d-flex gap-2 align-items-center">
+            <button class="btn-surprise" onclick="surpriseMe()"><i class="bi bi-shuffle"></i> Surprise Me</button>
+            <button class="btn btn-outline-custom btn-sm" id="moviesLoadMoreBtn" type="button" style="display:none">
+              <i class="bi bi-plus-circle me-1"></i>Load More
+            </button>
+          </div>
+        </div>
+        <div class="row g-3" id="moviesPageContainer"></div>
+        <div id="moviesEmptyState" class="empty-state text-center py-5 d-none">
+          <i class="bi bi-film display-3 mb-3"></i>
+          <h4>No movies found</h4>
+          <button class="btn btn-primary-custom" onclick="resetMoviesFilters()">Reset Filters</button>
+        </div>
+      </div>
+    </main>
+  </div><!-- end moviesPage -->
+
+  <!-- SERIES PAGE -->
+  <div id="seriesPage" style="display:none">
+    <div class="page-hero series-hero py-5">
+      <div class="container-xl">
+        <div class="d-flex align-items-center gap-3 mb-2">
+          <span class="page-hero-icon"><i class="bi bi-tv"></i></span>
+          <h1 class="page-hero-title">Series</h1>
+        </div>
+        <p class="text-muted">Top trending series and all shows — filtered by language region</p>
+      </div>
+    </div>
+
+    <section class="py-4 top-now-section">
+      <div class="container-xl">
+        <div class="top-lang-filter d-flex align-items-center gap-3 mb-4 flex-wrap">
+          <span class="filter-label"><i class="bi bi-globe2 me-1"></i>Region:</span>
+          <div class="top-lang-tabs d-flex gap-2 flex-wrap">
+            <button class="top-lang-tab active" data-region="all" onclick="setSeriesRegion('all', this)">🌍 Overall</button>
+            <button class="top-lang-tab" data-region="en" onclick="setSeriesRegion('en', this)">🎬 English</button>
+            <button class="top-lang-tab" data-region="hi" onclick="setSeriesRegion('hi', this)">🎭 Hindi</button>
+            <button class="top-lang-tab" data-region="ta" onclick="setSeriesRegion('ta', this)">🎵 Tamil</button>
+            <button class="top-lang-tab" data-region="te" onclick="setSeriesRegion('te', this)">🌟 Telugu</button>
+            <button class="top-lang-tab" data-region="ml" onclick="setSeriesRegion('ml', this)">🌴 Malayalam</button>
+            <button class="top-lang-tab" data-region="ko" onclick="setSeriesRegion('ko', this)">🇰🇷 Korean</button>
+            <button class="top-lang-tab" data-region="ja" onclick="setSeriesRegion('ja', this)">🎌 Japanese</button>
+            <button class="top-lang-tab" data-region="zh" onclick="setSeriesRegion('zh', this)">🐉 Chinese</button>
+            <button class="top-lang-tab" data-region="fr" onclick="setSeriesRegion('fr', this)">🗼 French</button>
+            <button class="top-lang-tab" data-region="es" onclick="setSeriesRegion('es', this)">💃 Spanish</button>
+          </div>
+        </div>
+        <div class="top-card p-3 p-md-4">
+          <div class="d-flex align-items-center justify-content-between mb-3">
+            <h2 class="section-title h5 mb-0" id="seriesTopHeading"><i class="bi bi-tv me-2 accent-text"></i>Top 10 Series Right Now</h2>
+            <span class="top-badge live-badge"><span class="live-dot"></span>LIVE</span>
+          </div>
+          <div id="topSeriesPageContainer" class="top-list-horizontal">
+            <div class="skeleton-list" style="height:200px"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="py-4 filter-bar">
+      <div class="container-xl">
+        <div class="d-flex flex-wrap align-items-center gap-3">
+          <span class="filter-label"><i class="bi bi-funnel-fill me-1"></i>Filter:</span>
+          <select class="form-select genre-select" id="seriesLangFilter"><option value="all">All Languages</option></select>
+          <select class="form-select genre-select" id="seriesGenreFilter"><option value="all">All Genres</option></select>
+          <select class="form-select genre-select" id="seriesYearFilter"><option value="all">All Years</option></select>
+          <select class="form-select genre-select" id="seriesSortFilter">
+            <option value="trending">Trending</option>
+            <option value="upcoming">Upcoming</option>
+            <option value="imdb">Top Rated</option>
+            <option value="underrated">Underrated</option>
+            <option value="year">Newest First</option>
+            <option value="title">A–Z</option>
+          </select>
+          <div class="ms-auto"><span class="results-count" id="seriesResultsCount"></span></div>
+        </div>
+      </div>
+    </section>
+
+    <main class="py-5">
+      <div class="container-xl">
+        <div class="section-header d-flex align-items-center justify-content-between mb-4">
+          <h2 class="section-title">All Series</h2>
+          <button class="btn btn-outline-custom btn-sm" id="seriesLoadMoreBtn" type="button">
+            <i class="bi bi-plus-circle me-1"></i>Load More
+          </button>
+        </div>
+        <div class="row g-3" id="seriesPageContainer"></div>
+        <div id="seriesEmptyState" class="empty-state text-center py-5 d-none">
+          <i class="bi bi-tv display-3 mb-3"></i>
+          <h4>No series found</h4>
+          <button class="btn btn-primary-custom" onclick="resetSeriesFilters()">Reset Filters</button>
+        </div>
+      </div>
+    </main>
+  </div><!-- end seriesPage -->
+
+  <!-- DETAIL PAGE -->
+  <div id="detailPage" style="display:none">
+
+    <div class="detail-back-bar">
+      <div class="container-xl py-2 d-flex align-items-center justify-content-between">
+        <button class="btn btn-outline-custom btn-sm" onclick="historyBack()">
+          <i class="bi bi-arrow-left me-1"></i>Back
+        </button>
+        <nav aria-label="breadcrumb" class="d-none d-md-block">
+          <ol class="breadcrumb mb-0 small">
+            <li class="breadcrumb-item"><a href="#" onclick="showHome(); return false;" class="accent-link">Home</a></li>
+            <li class="breadcrumb-item active" id="breadcrumbTitle"></li>
+          </ol>
+        </nav>
+      </div>
+    </div>
+
+    <!-- Hero Banner -->
+    <div class="detail-hero" id="detailHero">
+      <div class="detail-hero-bg" id="detailHeroBg"></div>
+      <div class="detail-hero-overlay"></div>
+      <div class="container-xl py-5 position-relative">
+        <div class="row g-4 align-items-end">
+          <div class="col-md-3 col-sm-4 col-5">
+            <div class="detail-poster-wrapper">
+              <img id="detailPoster" src="" alt="" class="detail-poster img-fluid" />
+              <div class="detail-poster-shine"></div>
+            </div>
+          </div>
+          <div class="col-md-9 col-sm-8 col-7">
+            <div class="d-flex flex-wrap gap-2 mb-2">
+              <span class="lang-badge" id="detailLang"></span>
+              <span class="genre-badge" id="detailGenreBadge"></span>
+              <span class="cert-badge" id="detailCert" style="display:none"></span>
+            </div>
+            <h1 class="detail-title" id="detailTitle"></h1>
+            <div class="detail-meta d-flex flex-wrap gap-3 mb-2">
+              <span class="meta-item"><i class="bi bi-calendar3 me-1"></i><span id="detailYear"></span></span>
+              <span class="meta-item imdb-badge-lg"><i class="bi bi-star-fill me-1"></i><span id="detailRating"></span><span class="text-muted">/10</span></span>
+              <span class="meta-item" id="detailRuntimeWrap" style="display:none"><i class="bi bi-clock me-1"></i><span id="detailRuntime"></span></span>
+              <span class="meta-item"><i class="bi bi-camera-video me-1"></i><span id="detailDirector"></span></span>
+            </div>
+            <div id="detailTagline" class="detail-tagline mb-2"></div>
+            <p class="detail-desc" id="detailDesc"></p>
+
+            <div class="d-flex flex-wrap gap-2 mt-3">
+              <a id="detailOTTBtn" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-primary-custom" style="display:none">
+                <i class="bi bi-play-fill me-1"></i><span id="detailOTTName">Watch Now</span>
+              </a>
+              <div id="detailPlatformBtns" class="d-flex flex-wrap gap-2"></div>
+              <a id="detailIMDbBtn" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-outline-custom">
+                <i class="bi bi-box-arrow-up-right me-1"></i>IMDb
+              </a>
+              <button id="detailWatchlistBtn" class="btn btn-outline-custom" onclick="toggleWatchlistDetail()">
+                <i class="bi bi-bookmark-plus me-1" id="detailWLIcon"></i><span id="detailWLText">Save</span>
+              </button>
+              <button id="detailFavBtn" class="btn btn-outline-custom" onclick="toggleFavDetail()">
+                <i class="bi bi-heart me-1" id="detailFavIcon"></i><span id="detailFavText">Like</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="container-xl py-4" id="detailBody">
+      <div class="row g-4 mb-5">
+        <div class="col-lg-7">
+          <h3 class="carousel-section-title mb-3"><i class="bi bi-play-circle-fill accent-text me-2"></i>Trailer</h3>
+          <div class="trailer-embed-wrapper">
+            <div class="ratio ratio-16x9">
+              <iframe id="detailTrailerEmbed" src="" title="Movie Trailer" allow="encrypted-media" allowfullscreen loading="lazy"></iframe>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-5">
+          <h3 class="carousel-section-title mb-3"><i class="bi bi-people-fill accent-text me-2"></i>Cast & Crew</h3>
+          <div id="detailCastCrew" class="cast-crew-grid"></div>
+        </div>
+      </div>
+
+      <!-- Rate & Review section inside detail page -->
+      <div class="mb-5 detail-review-section">
+        <h3 class="carousel-section-title mb-3"><i class="bi bi-star accent-text me-2"></i>Rate & Review This Movie</h3>
+        <div class="detail-review-box p-4">
+          <div class="row g-4">
+            <div class="col-md-6">
+              <form id="detailReviewForm" novalidate>
+                <div class="mb-3">
+                  <label class="form-label text-muted small">YOUR NAME</label>
+                  <input type="text" class="form-control custom-input" id="detailReviewerName" placeholder="Enter your name" />
+                </div>
+                <div class="mb-3">
+                  <label class="form-label text-muted small">RATING</label>
+                  <div class="star-rating" role="radiogroup" id="detailStarRating">
+                    <span class="star detail-star" data-rating="1" tabindex="0">★</span>
+                    <span class="star detail-star" data-rating="2" tabindex="0">★</span>
+                    <span class="star detail-star" data-rating="3" tabindex="0">★</span>
+                    <span class="star detail-star" data-rating="4" tabindex="0">★</span>
+                    <span class="star detail-star" data-rating="5" tabindex="0">★</span>
+                  </div>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label text-muted small">YOUR REVIEW</label>
+                  <textarea class="form-control custom-input" id="detailReviewText" rows="3" placeholder="Share your thoughts about this movie…"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary-custom"><i class="bi bi-send me-2"></i>Submit Review</button>
+              </form>
+            </div>
+            <div class="col-md-6">
+              <div id="detailMovieReviews" class="detail-reviews-list">
+                <p class="text-muted small">No reviews yet for this movie.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-5">
+        <h3 class="carousel-section-title mb-3"><i class="bi bi-film accent-text me-2"></i>Similar Movies</h3>
+        <div class="similar-grid" id="similarMoviesRow"></div>
+      </div>
+
+      <div class="mb-5">
+        <h3 class="carousel-section-title mb-3"><i class="bi bi-person-video2 accent-text me-2"></i>More from <span id="leadActorName"></span></h3>
+        <div class="similar-grid" id="actorMoviesRow"></div>
+      </div>
+
+      <div class="mb-5">
+        <h3 class="carousel-section-title mb-3"><i class="bi bi-camera2 accent-text me-2"></i>More from Director — <span id="directorName"></span></h3>
+        <div class="similar-grid" id="directorMoviesRow"></div>
+      </div>
+    </div>
+
+    <footer class="site-footer py-4">
+      <div class="container-xl">
+        <hr class="footer-divider" />
+        <div class="d-flex flex-wrap justify-content-between align-items-center">
+          <p class="mb-0 text-muted small">&copy; 2026 House of Digital Kino — Reg: 24BIT0468 | Haris K</p>
+          <button class="btn btn-outline-custom btn-sm" onclick="historyBack()"><i class="bi bi-arrow-left me-1"></i>Back</button>
+        </div>
+      </div>
+    </footer>
+  </div><!-- end detailPage -->
+
+  <!-- TOAST -->
+  <div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div id="appToast" class="toast" role="alert" aria-live="assertive">
+      <div class="toast-body d-flex align-items-center gap-2" id="toastBody"></div>
+    </div>
+  </div>
+
+  <!-- AUTH MODAL -->
+  <div class="modal fade" id="authModal" tabindex="-1" aria-labelledby="authModalLabel" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content api-modal-content">
+        <div class="modal-header border-0 pb-0">
+          <h5 class="modal-title" id="authModalLabel"><i class="bi bi-person-badge-fill accent-text me-2"></i>Account</h5>
+        </div>
+        <div class="modal-body">
+          <div class="d-flex gap-2 mb-3">
+            <button class="btn btn-outline-custom btn-sm" id="loginModeBtn" type="button" onclick="setAuthMode('login')">Login</button>
+            <button class="btn btn-outline-custom btn-sm" id="registerModeBtn" type="button" onclick="setAuthMode('register')">Register</button>
+            <button class="btn btn-primary-custom btn-sm" type="button" onclick="loginWithGoogle()"><i class="bi bi-google me-1"></i>Google</button>
+          </div>
+          <div class="mb-3" id="authNameWrap" style="display:none">
+            <label class="form-label">Name</label>
+            <input type="text" class="form-control custom-input" id="authName" placeholder="Your name" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input type="email" class="form-control custom-input" id="authEmail" placeholder="you@gmail.com" />
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Password</label>
+            <input type="password" class="form-control custom-input" id="authPassword" placeholder="Minimum 6 characters" />
+          </div>
+          <p class="text-muted small mb-0" id="authHint">Use a valid Gmail account to sync watchlist, ratings, and personalized rows across devices.</p>
+        </div>
+        <div class="modal-footer border-0">
+          <button type="button" class="btn btn-primary-custom btn-sm" onclick="submitAuth()"><i class="bi bi-check-lg me-1"></i>Continue</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LANGUAGE ONBOARDING MODAL -->
+  <div class="modal fade" id="languageModal" tabindex="-1" aria-labelledby="languageModalLabel" aria-modal="true" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content api-modal-content">
+        <div class="modal-header border-0 pb-0">
+          <h5 class="modal-title" id="languageModalLabel"><i class="bi bi-translate accent-text me-2"></i>Select Preferred Languages</h5>
+          <button type="button" class="btn-close btn-close-white" id="languageModalCloseBtn" style="display:none" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small mb-3">Pick languages for personalized recommendations — home page will show movies &amp; series in these languages.</p>
+          <div class="d-flex flex-wrap gap-2" id="languageChoices" style="max-height:320px;overflow-y:auto">
+            <label class="lang-chip"><input type="checkbox" value="ta" /> 🎵 Tamil</label>
+            <label class="lang-chip"><input type="checkbox" value="en" /> 🎬 English</label>
+            <label class="lang-chip"><input type="checkbox" value="hi" /> 🎭 Hindi</label>
+            <label class="lang-chip"><input type="checkbox" value="te" /> 🌟 Telugu</label>
+            <label class="lang-chip"><input type="checkbox" value="ml" /> 🌴 Malayalam</label>
+            <label class="lang-chip"><input type="checkbox" value="ko" /> 🇰🇷 Korean</label>
+            <label class="lang-chip"><input type="checkbox" value="ja" /> 🎌 Japanese</label>
+            <label class="lang-chip"><input type="checkbox" value="zh" /> 🐉 Chinese</label>
+            <label class="lang-chip"><input type="checkbox" value="fr" /> 🗼 French</label>
+            <label class="lang-chip"><input type="checkbox" value="es" /> 💃 Spanish</label>
+            <label class="lang-chip"><input type="checkbox" value="de" /> 🍺 German</label>
+            <label class="lang-chip"><input type="checkbox" value="it" /> 🍕 Italian</label>
+            <label class="lang-chip"><input type="checkbox" value="kn" /> 🏔️ Kannada</label>
+            <label class="lang-chip"><input type="checkbox" value="bn" /> 📚 Bengali</label>
+            <label class="lang-chip"><input type="checkbox" value="ru" /> 🌨️ Russian</label>
+            <label class="lang-chip"><input type="checkbox" value="pt" /> 🌊 Portuguese</label>
+            <label class="lang-chip"><input type="checkbox" value="tr" /> 🌹 Turkish</label>
+            <label class="lang-chip"><input type="checkbox" value="th" /> 🐘 Thai</label>
+          </div>
+        </div>
+        <div class="modal-footer border-0 flex-column align-items-stretch gap-2">
+          <button type="button" class="btn btn-primary-custom btn-sm" onclick="saveLanguages()">
+            <i class="bi bi-check2-circle me-1"></i>Save &amp; Update Home
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stranger Things / GoT ambient canvas -->
+  <canvas id="ambientCanvas" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:0;transition:opacity 1s;"></canvas>
+
+  <!-- THEME CHARACTER -->
+  <div id="themeCharacter" class="theme-character hidden" aria-hidden="true">
+    <img id="themeCharacterImg" src="" alt="" loading="lazy" decoding="async" />
+    <div id="themeDialogue" class="theme-dialogue" aria-live="polite"></div>
+  </div>
+
+  <!-- EVENT OVERLAY -->
+  <div id="themeEvent" class="theme-event hidden" aria-hidden="true">
+    <div id="eventText"></div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    window.CINEMA_API_BASE = window.CINEMA_API_BASE || (
+      (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+        ? 'http://localhost:5000/api'
+        : 'https://movie-recommendation-bkup.onrender.com/api'
+    );
+  </script>
   <script src="script.js"></script>
 </body>
 </html>
