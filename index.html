@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Movie Recommender web app with searchable movie cards." />
+  <title>Movie Recommender</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <nav aria-label="Main navigation">
+      <h1>Movie Recommender</h1>
+      <form role="search" aria-label="Search movies">
+        <label for="movieSearch">Search movies</label>
+        <input
+          type="search"
+          id="movieSearch"
+          name="movieSearch"
+          placeholder="Search by title or genre"
+          autocomplete="off"
+        />
+      </form>
+    </nav>
+  </header>
+
+  <main>
+    <section aria-labelledby="recommendationsTitle">
+      <h2 id="recommendationsTitle">Recommended Movies</h2>
+
+      <div id="movieContainer" aria-live="polite">
+        <article class="movie-card">
+          <img src="https://via.placeholder.com/300x450?text=Movie+Poster" alt="Poster for Inception" />
+          <h3>Inception</h3>
+          <p>Genre: Sci-Fi, Thriller</p>
+          <p aria-label="Movie rating">Rating: 8.8/10</p>
+        </article>
+
+        <article class="movie-card">
+          <img src="https://via.placeholder.com/300x450?text=Movie+Poster" alt="Poster for The Dark Knight" />
+          <h3>The Dark Knight</h3>
+          <p>Genre: Action, Crime</p>
+          <p aria-label="Movie rating">Rating: 9.0/10</p>
+        </article>
+
+        <article class="movie-card">
+          <img src="https://via.placeholder.com/300x450?text=Movie+Poster" alt="Poster for Interstellar" />
+          <h3>Interstellar</h3>
+          <p>Genre: Adventure, Drama</p>
+          <p aria-label="Movie rating">Rating: 8.7/10</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 Movie Recommender. All rights reserved.</p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

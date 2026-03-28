@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="300" viewBox="0 0 240 300" role="img" aria-label="Jon Snow portrait card">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e232b"/>
+      <stop offset="1" stop-color="#6b0f0f"/>
+    </linearGradient>
+  </defs>
+  <rect width="240" height="300" rx="18" fill="url(#bg)"/>
+  <rect x="10" y="10" width="220" height="280" rx="14" fill="none" stroke="#cfd7df" stroke-opacity="0.45"/>
+  <circle cx="120" cy="132" r="36" fill="#e5c8ab"/>
+  <path d="M82 130c6-42 20-58 38-58s32 16 38 58c-7-3-12-8-18-15-7 9-13 13-20 16-8-2-15-8-19-16-6 8-12 13-19 15z" fill="#1a1a1f"/>
+  <path d="M64 250c7-38 27-63 56-63s49 25 56 63" fill="#14161c"/>
+  <path d="M158 226l18-22 8 7-18 22z" fill="#c6ccd3"/>
+  <path d="M174 205l20-23 10 8-20 23z" fill="#8c9299"/>
+  <path d="M39 215c20-24 48-22 62 2-20 3-41 2-62-2z" fill="#95a3af" fill-opacity="0.5"/>
+  <text x="18" y="276" font-family="Segoe UI, Arial" font-size="18" fill="#e7edf2">JON SNOW</text>
+</svg>

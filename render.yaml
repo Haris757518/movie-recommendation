@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: movie-recommendation-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: TMDB_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false

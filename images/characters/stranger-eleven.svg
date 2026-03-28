@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="300" viewBox="0 0 240 300" role="img" aria-label="Eleven portrait card">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#130608"/>
+      <stop offset="1" stop-color="#4a0004"/>
+    </linearGradient>
+    <radialGradient id="rift" cx="0.75" cy="0.3" r="0.55">
+      <stop offset="0" stop-color="#e50914" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#e50914" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="240" height="300" rx="18" fill="url(#bg)"/>
+  <rect x="10" y="10" width="220" height="280" rx="14" fill="none" stroke="#e50914" stroke-opacity="0.55"/>
+  <circle cx="180" cy="90" r="80" fill="url(#rift)"/>
+  <circle cx="120" cy="136" r="35" fill="#f0c5b0"/>
+  <path d="M88 133c2-36 16-55 32-55s30 19 32 55c-8-5-13-9-19-16-4 7-9 12-13 16-4-4-9-9-13-16-6 7-11 11-19 16z" fill="#2d1014"/>
+  <path d="M70 252c8-39 26-62 50-62s42 23 50 62" fill="#1a0e13"/>
+  <path d="M54 173l17 6-9 14-17-6z" fill="#8b0000"/>
+  <circle cx="47" cy="176" r="5" fill="#e50914"/>
+  <text x="18" y="276" font-family="Segoe UI, Arial" font-size="18" fill="#ffd1d4">ELEVEN</text>
+</svg>
