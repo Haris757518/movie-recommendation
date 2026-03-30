@@ -18,19 +18,7 @@
   "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js",
-    "db:audit": "node scripts/auditDb.js",
-    "db:upgrade": "node scripts/upgradeDb.js",
-    "db:sync-posters": "node scripts/syncMissingPosters.js",
-    "db:sync-posters:fill": "node -e \"process.env.POSTER_FILL_PLACEHOLDER='true'; require('./scripts/syncMissingPosters.js')\"",
-    "db:sync-genres": "node scripts/syncMissingGenres.js",
-    "db:meta-genres": "node -e \"require('dotenv').config();const m=require('mongoose');const Movie=require('./models/Movie');(async()=>{await m.connect(process.env.MONGO_URI);const d=await Movie.aggregate([{ $match:{genre:{ $exists:true,$ne:[] }}},{ $unwind:'$genre'},{ $group:{ _id:'$genre', count:{ $sum:1 }}},{ $sort:{ count:-1 }},{ $limit:30 }]);console.log(d);await m.connection.close();})().catch(async e=>{console.error(e.message);try{await m.connection.close();}catch{}process.exit(1);});\"",
-    "db:cleanup-demo": "node scripts/cleanupDemoDataset.js",
-    "db:cleanup-demo:apply": "node scripts/cleanupDemoDataset.js --apply",
-    "db:fix-genres": "node scripts/fixGenres.js",
-    "db:fix-genres:apply": "node scripts/fixGenres.js --apply",
-    "db:fix-langcodes": "node scripts/fixLangCodes.js",
-    "db:fix-langcodes:apply": "node scripts/fixLangCodes.js --apply"
+    "start": "node server.js"
   },
   "keywords": [],
   "author": "",
