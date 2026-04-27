@@ -4410,6 +4410,26 @@ function buildImdbPlayUrl(imdbUrl = '') {
   }
 }
 
+function setDetailPlayerMode(mode = 'trailer') {
+  const isWatch = String(mode || '').toLowerCase() === 'watch';
+  let heading = document.getElementById('detailPlayerHeading');
+  if (!heading) {
+    const trailerEmbed = document.getElementById('detailTrailerEmbed');
+    const playerCol = trailerEmbed?.closest('.col-lg-7');
+    heading = playerCol?.querySelector('h3.carousel-section-title') || null;
+  }
+  if (heading) {
+    heading.innerHTML = isWatch
+      ? '<i class="bi bi-play-btn-fill accent-text me-2"></i>Watch Now'
+      : '<i class="bi bi-play-circle-fill accent-text me-2"></i>Trailer';
+  }
+
+  const trailerEmbed = document.getElementById('detailTrailerEmbed');
+  if (trailerEmbed) {
+    trailerEmbed.title = isWatch ? 'Movie Watch Player' : 'Movie Trailer';
+  }
+}
+
 function setDetailWatchNowLink(imdbUrl = '') {
   const watchNowBtn = document.getElementById('detailOTTBtn');
   if (!watchNowBtn) return;
@@ -4419,15 +4439,22 @@ function setDetailWatchNowLink(imdbUrl = '') {
     watchNowBtn.style.display = 'none';
     watchNowBtn.removeAttribute('href');
     watchNowBtn.onclick = null;
+    setDetailPlayerMode('trailer');
     return;
   }
 
   watchNowBtn.href = playUrl;
   watchNowBtn.style.display = 'inline-flex';
   watchNowBtn.onclick = (event) => {
-    const trailerEmbed = document.getElementById('detailTrailerEmbed');
-    if (!trailerEmbed) return;
+    setDetailPlayerMode('watch');
     event.preventDefault();
+
+    const trailerEmbed = document.getElementById('detailTrailerEmbed');
+    if (!trailerEmbed) {
+      window.open(playUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
     trailerEmbed.src = playUrl;
     trailerEmbed.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
@@ -4613,7 +4640,7 @@ async function showDetailPage(movieId, isTV = false, options = {}) {
     detailBody.innerHTML = `
       <div class="row g-4 mb-5">
         <div class="col-lg-7">
-          <h3 class="carousel-section-title mb-3"><i class="bi bi-play-circle-fill accent-text me-2"></i>Trailer</h3>
+          <h3 class="carousel-section-title mb-3" id="detailPlayerHeading"><i class="bi bi-play-circle-fill accent-text me-2"></i>Trailer</h3>
           <div class="trailer-embed-wrapper">
             <div class="ratio ratio-16x9">
               <iframe id="detailTrailerEmbed" src="" title="Movie Trailer" allow="encrypted-media" allowfullscreen loading="lazy"></iframe>
@@ -4721,6 +4748,7 @@ async function showDetailPage(movieId, isTV = false, options = {}) {
   updateDetailActionButtons();
 
   const trailerEmbed = document.getElementById('detailTrailerEmbed');
+  setDetailPlayerMode('trailer');
   if (trailerEmbed) trailerEmbed.src = '';
 
   renderCastCrew([]);
@@ -4962,6 +4990,7 @@ async function enrichDetailPage(movie) {
       || videos.results?.find(v => v.site === 'YouTube');
     const trailerEmbed = document.getElementById('detailTrailerEmbed');
     if (trailerEmbed) {
+      setDetailPlayerMode('trailer');
       if (trailer?.key) {
         trailerEmbed.src = `https://www.youtube.com/embed/${trailer.key}?controls=1&rel=0`;
       } else {
@@ -5035,6 +5064,7 @@ function fallbackDetailSections(movie) {
 
   const trailerEmbed = document.getElementById('detailTrailerEmbed');
   if (trailerEmbed) {
+    setDetailPlayerMode('trailer');
     trailerEmbed.src = movie.trailerYT
       ? `https://www.youtube.com/embed/${movie.trailerYT}?controls=1`
       : `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(movie.title + ' trailer')}`;
