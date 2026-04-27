@@ -26,7 +26,9 @@ function resolveApiBase() {
   const configured = normalizeApiBase(window.CINEMA_API_BASE || '');
   if (configured) return configured;
 
-  const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const host = String(window.location.hostname || '').trim();
+  const isFileProtocol = window.location.protocol === 'file:';
+  const isLocal = isFileProtocol || !host || ['localhost', '127.0.0.1'].includes(host);
   return isLocal ? LOCAL_API_BASE : 'https://movie-recommendation-bkup.onrender.com/api';
 }
 
@@ -175,6 +177,9 @@ const HOME_ROW_LIMIT = 12;
 const API_LIST_LIMIT = 12;
 const SEARCH_DROPDOWN_LIMIT = 10;
 const GET_CACHE_TTL_MS = 15000;
+const REQUEST_TIMEOUT_MS = 4500;
+const DETAIL_BUNDLE_TIMEOUT_MS = 3500;
+const TMDB_TIMEOUT_MS = 5000;
 const inflightGetRequests = new Map();
 const getResponseCache = new Map();
 
@@ -884,9 +889,21 @@ function tmdbUrl(path, params = {}) {
 }
 
 async function tmdbGet(path, params = {}) {
-  const res = await fetch(tmdbUrl(path, params));
-  if (!res.ok) throw new Error(`TMDB ${res.status}`);
-  return res.json();
+  // Reuse dedupe/cache layer so repeated TMDB requests resolve faster.
+  return withTimeout(fetchJson(tmdbUrl(path, params)), TMDB_TIMEOUT_MS, 'TMDB request timed out');
+}
+
+function withTimeout(promise, timeoutMs = REQUEST_TIMEOUT_MS, message = 'Request timed out') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(message)), timeoutMs);
+    })
+  ]);
+}
+
+async function fetchJsonWithTimeout(url, timeoutMs = REQUEST_TIMEOUT_MS, options = {}) {
+  return withTimeout(fetchJson(url, options), timeoutMs, `Request timed out: ${url}`);
 }
 
 async function fetchJson(url, options = {}) {
@@ -4352,6 +4369,131 @@ function runHPAmbient(canvas) {
 /* ===================================================
    DETAIL PAGE
    =================================================== */
+function getImdbTitleUrlFromId(imdbId) {
+  const cleanId = String(imdbId || '').trim().toLowerCase();
+  if (!/^tt\d+$/i.test(cleanId)) return '';
+  return `https://www.imdb.com/title/${cleanId}`;
+}
+
+function extractImdbIdFromValue(value = '') {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  if (/^tt\d+$/i.test(raw)) {
+    return raw.toLowerCase();
+  }
+
+  try {
+    const parsed = new URL(raw);
+    const match = String(parsed.pathname || '').match(/\/title\/(tt\d+)/i);
+    return match?.[1] ? match[1].toLowerCase() : '';
+  } catch (_err) {
+    return '';
+  }
+}
+
+function buildImdbPlayUrl(imdbUrl = '') {
+  const rawUrl = String(imdbUrl || '').trim();
+  if (!rawUrl) return '';
+
+  try {
+    const parsed = new URL(rawUrl);
+    const isImdbHost = /(^|\.)imdb\.com$/i.test(parsed.hostname);
+    const isTitlePath = /^\/title\/tt/i.test(parsed.pathname || '');
+    if (!isImdbHost || !isTitlePath) return '';
+
+    parsed.protocol = 'https:';
+    parsed.hostname = 'www.playimdb.com';
+    return parsed.toString();
+  } catch (_err) {
+    return '';
+  }
+}
+
+function setDetailWatchNowLink(imdbUrl = '') {
+  const watchNowBtn = document.getElementById('detailOTTBtn');
+  if (!watchNowBtn) return;
+
+  const playUrl = buildImdbPlayUrl(imdbUrl);
+  if (!playUrl) {
+    watchNowBtn.style.display = 'none';
+    watchNowBtn.removeAttribute('href');
+    watchNowBtn.onclick = null;
+    return;
+  }
+
+  watchNowBtn.href = playUrl;
+  watchNowBtn.style.display = 'inline-flex';
+  watchNowBtn.onclick = (event) => {
+    const trailerEmbed = document.getElementById('detailTrailerEmbed');
+    if (!trailerEmbed) return;
+    event.preventDefault();
+    trailerEmbed.src = playUrl;
+    trailerEmbed.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+}
+
+function setDetailImdbLink(imdbUrl = '') {
+  const imdbBtn = document.getElementById('detailIMDbBtn');
+  if (!imdbBtn) return;
+
+  if (!imdbUrl) {
+    imdbBtn.style.display = 'none';
+    imdbBtn.removeAttribute('href');
+    return;
+  }
+
+  imdbBtn.style.display = 'inline-flex';
+  imdbBtn.href = imdbUrl;
+}
+
+async function resolveExactImdbLink(movie) {
+  if (!movie || typeof movie !== 'object') return '';
+
+  const existingUrl = getImdbTitleUrlFromId(
+    extractImdbIdFromValue(movie.imdbId || movie.imdb_id || movie.imdbURL)
+  );
+  if (existingUrl) return existingUrl;
+
+  if (movie._imdbResolvePromise) {
+    return movie._imdbResolvePromise;
+  }
+
+  const params = new URLSearchParams();
+  const numericTmdbId = Number(movie.tmdbId || movie.id);
+  if (Number.isFinite(numericTmdbId) && numericTmdbId > 0) {
+    params.set('tmdbId', String(numericTmdbId));
+  }
+
+  const cleanTitle = String(movie.title || '').trim();
+  if (cleanTitle) params.set('title', cleanTitle);
+
+  const numericYear = Number(movie.year);
+  if (Number.isFinite(numericYear) && numericYear > 1800) {
+    params.set('year', String(numericYear));
+  }
+
+  params.set('type', movie.isTV ? 'tv' : 'movie');
+
+  if (![...params.keys()].length) return '';
+
+  movie._imdbResolvePromise = (async () => {
+    try {
+      const data = await fetchJsonWithTimeout(`${API_BASE}/movies/resolve-imdb?${params.toString()}`);
+      const resolvedImdbId = extractImdbIdFromValue(data?.imdbId || data?.imdbUrl);
+      const resolvedUrl = getImdbTitleUrlFromId(resolvedImdbId);
+      if (resolvedImdbId) movie.imdbId = resolvedImdbId;
+      return resolvedUrl;
+    } catch (_err) {
+      return '';
+    } finally {
+      movie._imdbResolvePromise = null;
+    }
+  })();
+
+  return movie._imdbResolvePromise;
+}
+
 async function showDetailPage(movieId, isTV = false, options = {}) {
   const { skipHistory = false, replaceHistory = false } = options;
 
@@ -4562,11 +4704,18 @@ async function showDetailPage(movieId, isTV = false, options = {}) {
 
   setText('detailTagline', '');
 
-  const imdbBtn = document.getElementById('detailIMDbBtn');
-  if (imdbBtn) imdbBtn.href = `https://www.imdb.com/find?q=${encodeURIComponent(movie.title)}`;
+  const imdbTitleUrl = getImdbTitleUrlFromId(movie.imdbId || movie.imdb_id);
+  setDetailImdbLink(imdbTitleUrl);
+  setDetailWatchNowLink(imdbTitleUrl);
 
-  const ottBtn = document.getElementById('detailOTTBtn');
-  if (ottBtn) ottBtn.style.display = 'none';
+  if (!imdbTitleUrl) {
+    resolveExactImdbLink(movie).then((resolvedUrl) => {
+      if (!resolvedUrl) return;
+      if (Number(currentDetailMovieId) !== Number(movie.id)) return;
+      setDetailImdbLink(resolvedUrl);
+      setDetailWatchNowLink(resolvedUrl);
+    });
+  }
 
   renderPlatformButtons(movie);
   updateDetailActionButtons();
@@ -4589,7 +4738,7 @@ async function showDetailPage(movieId, isTV = false, options = {}) {
   });
 
   // Enrich
-  if (HAS_TMDB && movie.tmdbId) {
+  if (movie.tmdbId) {
     enrichDetailPage(movie);
   } else {
     fallbackDetailSections(movie);
@@ -4671,20 +4820,90 @@ function renderDetailMovieReviews(movieId, movieTitle) {
   `).join('');
 }
 
+async function fetchDetailBundle(movie) {
+  const tmdbId = Number(movie?.tmdbId || movie?.id);
+  if (!Number.isFinite(tmdbId)) throw new Error('Missing TMDB id for detail bundle');
+
+  const preferredIsTV = Boolean(movie?.isTV);
+
+  // Prefer backend bundle so detail works even without a browser TMDB key.
+  try {
+    const type = preferredIsTV ? 'tv' : 'movie';
+    return await fetchJsonWithTimeout(`${API_BASE}/movies/${tmdbId}/details?type=${type}`, DETAIL_BUNDLE_TIMEOUT_MS);
+  } catch (_backendErr) {
+    // Fall through to direct TMDB only if a browser key is present.
+  }
+
+  if (!HAS_TMDB) {
+    throw new Error('Detail bundle unavailable from backend and browser TMDB key is missing');
+  }
+
+  const mediaAttempts = preferredIsTV ? [true, false] : [false, true];
+  let lastError = null;
+
+  for (const isTV of mediaAttempts) {
+    try {
+      const endpoint = isTV ? `/tv/${tmdbId}` : `/movie/${tmdbId}`;
+      const similarEndpoint = isTV ? `/tv/${tmdbId}/similar` : `/movie/${tmdbId}/similar`;
+      const details = await tmdbGet(endpoint, { append_to_response: 'videos,credits,watch/providers' });
+      const similar = await tmdbGet(similarEndpoint, { page: 1 }).catch(() => ({ results: [] }));
+
+      return {
+        isTV,
+        mediaType: isTV ? 'tv' : 'movie',
+        details: {
+          ...details,
+          videos: details.videos || { results: [] },
+          credits: details.credits || { cast: [], crew: [] },
+          watchProviders: details['watch/providers'] || { results: {} }
+        },
+        similar
+      };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Failed to resolve TMDB detail bundle');
+}
+
+function applyWatchProvidersFromDetails(movie, details) {
+  const providerData = details?.watchProviders || details?.['watch/providers'];
+  const region = providerData?.results?.IN || providerData?.results?.US || null;
+  if (!region) return;
+
+  const allProviders = [
+    ...(region.flatrate || []),
+    ...(region.rent || []),
+    ...(region.buy || [])
+  ];
+
+  const seen = new Set();
+  const unique = allProviders.filter((provider) => {
+    const name = String(provider?.provider_name || '');
+    if (!name || seen.has(name)) return false;
+    seen.add(name);
+    return true;
+  });
+
+  const platforms = unique.slice(0, 4).map((provider) => provider.provider_name);
+  if (!platforms.length) return;
+
+  movie.ottPlatforms = platforms;
+  movie.ottProviderMeta = unique.slice(0, 5).map((provider) => ({
+    name: provider.provider_name,
+    logoPath: provider.logo_path || ''
+  }));
+}
+
 async function enrichDetailPage(movie) {
   try {
-    const isTV = movie.isTV;
-    const endpoint = isTV ? `/tv/${movie.tmdbId}` : `/movie/${movie.tmdbId}`;
-    const videoEndpoint = isTV ? `/tv/${movie.tmdbId}/videos` : `/movie/${movie.tmdbId}/videos`;
-    const creditsEndpoint = isTV ? `/tv/${movie.tmdbId}/credits` : `/movie/${movie.tmdbId}/credits`;
-    const similarEndpoint = isTV ? `/tv/${movie.tmdbId}/similar` : `/movie/${movie.tmdbId}/similar`;
-
-    const [details, videos, credits, similar] = await Promise.all([
-      tmdbGet(endpoint),
-      tmdbGet(videoEndpoint),
-      tmdbGet(creditsEndpoint),
-      tmdbGet(similarEndpoint, { page: 1 })
-    ]);
+    const bundle = await fetchDetailBundle(movie);
+    const details = bundle?.details || {};
+    const videos = details.videos || { results: [] };
+    const credits = details.credits || { cast: [], crew: [] };
+    const similar = bundle?.similar || { results: [] };
+    movie.isTV = Boolean(bundle?.isTV ?? movie.isTV);
 
     if (details.overview) setText('detailDesc', details.overview);
     if (details.tagline) setText('detailTagline', `"${details.tagline}"`);
@@ -4703,10 +4922,22 @@ async function enrichDetailPage(movie) {
       genreBadge.textContent = details.genres.map(g => g.name).join(', ');
     }
 
-    // IMDb link
-    if (details.imdb_id) {
-      const imdbBtn = document.getElementById('detailIMDbBtn');
-      if (imdbBtn) imdbBtn.href = `https://www.imdb.com/title/${details.imdb_id}`;
+    // IMDb link + Watch Now (IMDb Play)
+    const resolvedImdbId = String(details.imdb_id || movie.imdbId || movie.imdb_id || '').trim();
+    const imdbTitleUrl = getImdbTitleUrlFromId(resolvedImdbId);
+    if (imdbTitleUrl) {
+      movie.imdbId = resolvedImdbId;
+    }
+    setDetailImdbLink(imdbTitleUrl);
+    setDetailWatchNowLink(imdbTitleUrl);
+
+    if (!imdbTitleUrl) {
+      resolveExactImdbLink(movie).then((resolvedUrl) => {
+        if (!resolvedUrl) return;
+        if (Number(currentDetailMovieId) !== Number(movie.id)) return;
+        setDetailImdbLink(resolvedUrl);
+        setDetailWatchNowLink(resolvedUrl);
+      });
     }
 
     // Director / Creator
@@ -4742,7 +4973,7 @@ async function enrichDetailPage(movie) {
     const similarMapped = (similar.results || []).slice(0, 12).map(m => {
       const mapped = { ...mapTmdbMovie(m), isTV: movie.isTV };
       if (!allMovies.find(x => x.id === mapped.id) && !allSeries.find(x => x.id === mapped.id)) {
-        if (isTV) allSeries.push(mapped); else allMovies.push(mapped);
+        if (movie.isTV) allSeries.push(mapped); else allMovies.push(mapped);
       }
       return mapped;
     });
@@ -4775,7 +5006,12 @@ async function enrichDetailPage(movie) {
       posterEl.src = `${TMDB_IMG_W500}${details.poster_path}`;
     }
 
-    await fetchAndSetWatchProviders({ ...movie, tmdbId: movie.tmdbId });
+    applyWatchProvidersFromDetails(movie, details);
+    renderPlatformButtons(movie);
+
+    if (!movie.ottPlatforms?.length && HAS_TMDB) {
+      await fetchAndSetWatchProviders({ ...movie, tmdbId: movie.tmdbId });
+    }
 
   } catch (err) {
     console.warn('Detail enrich failed:', err);
@@ -4784,13 +5020,26 @@ async function enrichDetailPage(movie) {
 }
 
 function fallbackDetailSections(movie) {
+  const imdbTitleUrl = getImdbTitleUrlFromId(movie.imdbId || movie.imdb_id);
+  setDetailImdbLink(imdbTitleUrl);
+  setDetailWatchNowLink(imdbTitleUrl);
+
+  if (!imdbTitleUrl) {
+    resolveExactImdbLink(movie).then((resolvedUrl) => {
+      if (!resolvedUrl) return;
+      if (Number(currentDetailMovieId) !== Number(movie.id)) return;
+      setDetailImdbLink(resolvedUrl);
+      setDetailWatchNowLink(resolvedUrl);
+    });
+  }
+
   const trailerEmbed = document.getElementById('detailTrailerEmbed');
   if (trailerEmbed) {
     trailerEmbed.src = movie.trailerYT
       ? `https://www.youtube.com/embed/${movie.trailerYT}?controls=1`
       : `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(movie.title + ' trailer')}`;
   }
-  renderCastCrew(movie.cast || []);
+  renderCastCrew(normalizeCastEntries(movie.cast || []));
   setText('directorName', movie.director || 'N/A');
   const similarMovies = (movie.similarMovieIds || []).map(id => allMovies.find(m => m.id === id)).filter(Boolean).slice(0, 12);
   renderMiniGrid('similarMoviesRow', similarMovies, 'No similar movies found.');
@@ -4809,14 +5058,34 @@ function fallbackDetailSections(movie) {
 /* ===================================================
    CAST CREW
    =================================================== */
+function normalizeCastEntries(cast = []) {
+  return (Array.isArray(cast) ? cast : []).map((entry) => {
+    if (!entry) return null;
+
+    if (typeof entry === 'string') {
+      return { name: entry, role: 'Cast', personId: null, profilePath: null };
+    }
+
+    const name = entry.name || entry.original_name || 'Unknown';
+    const role = entry.role || entry.character || entry.job || 'Cast';
+    const rawId = Number(entry.personId ?? entry.id ?? NaN);
+    const personId = Number.isFinite(rawId) ? rawId : null;
+    const profilePath = entry.profilePath
+      || (entry.profile_path ? `https://image.tmdb.org/t/p/w185${entry.profile_path}` : null);
+
+    return { name, role, personId, profilePath };
+  }).filter(Boolean);
+}
+
 function renderCastCrew(cast) {
   const container = document.getElementById('detailCastCrew');
   if (!container) return;
-  if (!cast?.length) {
+  const normalizedCast = normalizeCastEntries(cast);
+  if (!normalizedCast.length) {
     container.innerHTML = '<p class="text-muted small">Cast information unavailable.</p>';
     return;
   }
-  container.innerHTML = cast.map(person => {
+  container.innerHTML = normalizedCast.map(person => {
     const encodedName = encodeURIComponent(person.name || 'Unknown');
     const personId = Number.isFinite(person.personId) ? person.personId : 'null';
     const avatar = person.profilePath

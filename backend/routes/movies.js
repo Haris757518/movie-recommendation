@@ -1,11 +1,47 @@
 const express = require('express');
 const NodeCache = require('node-cache');
+const https = require('https');
 const Movie = require('../models/Movie');
 
 const router = express.Router();
 const cache = new NodeCache({ stdTTL: 300, checkperiod: 120 });
 const MOVIE_PROJECTION = '-_id tmdbId title language langCode genre year rating popularity posterUrl isTV';
 const SEARCH_STOP_WORDS = new Set(['actor', 'actress', 'name', 'movie', 'movies', 'series', 'show', 'shows', 'film', 'films']);
+const TMDB_FETCH_TIMEOUT_MS = Math.max(parseInt(process.env.TMDB_FETCH_TIMEOUT_MS, 10) || 7000, 2000);
+const TMDB_FETCH_RETRIES = Math.min(Math.max(parseInt(process.env.TMDB_FETCH_RETRIES, 10) || 3, 0), 5);
+const TMDB_UNAVAILABLE_CACHE_KEY = 'tmdb:temporarily-unavailable';
+const TMDB_UNAVAILABLE_TTL_SECONDS = Math.max(parseInt(process.env.TMDB_UNAVAILABLE_TTL_SECONDS, 10) || 45, 15);
+const TMDB_USER_AGENT = 'CinemaWorld/1.0 (+TMDB integration)';
+
+const tmdbHttpsAgent = new https.Agent({
+  keepAlive: true,
+  family: 4,
+  maxSockets: 20,
+  timeout: TMDB_FETCH_TIMEOUT_MS + 3000
+});
+
+let cachedNodeFetch = null;
+
+async function serverFetch(url, options = {}) {
+  if (!cachedNodeFetch) {
+    const nodeFetchModule = await import('node-fetch');
+    cachedNodeFetch = nodeFetchModule.default;
+  }
+
+  return cachedNodeFetch(url, options);
+}
+
+function markTmdbUnavailable() {
+  cache.set(TMDB_UNAVAILABLE_CACHE_KEY, true, TMDB_UNAVAILABLE_TTL_SECONDS);
+}
+
+function clearTmdbUnavailable() {
+  cache.del(TMDB_UNAVAILABLE_CACHE_KEY);
+}
+
+function isTmdbTemporarilyUnavailable() {
+  return cache.get(TMDB_UNAVAILABLE_CACHE_KEY) === true;
+}
 
 function escapeRegex(value = '') {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -130,6 +166,383 @@ async function fetchTmdbActorKnownForIds(query, type = 'all', maxItems = 24, pre
     return [];
   }
 }
+
+async function tmdbGet(path, params = {}, ttlSeconds = 180) {
+  const apiKey = String(process.env.TMDB_API_KEY || '').trim();
+  if (!apiKey) {
+    const err = new Error('TMDB API key missing on server');
+    err.status = 503;
+    throw err;
+  }
+
+  const url = new URL(`https://api.themoviedb.org/3${path}`);
+  url.searchParams.set('api_key', apiKey);
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+
+  const cacheKey = `tmdb:${url.pathname}?${url.searchParams.toString()}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const shouldRetryStatus = (status) => [408, 425, 429, 500, 502, 503, 504].includes(Number(status));
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= TMDB_FETCH_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TMDB_FETCH_TIMEOUT_MS + (attempt * 1000));
+
+    try {
+      const response = await serverFetch(url.toString(), {
+        signal: controller.signal,
+        agent: tmdbHttpsAgent,
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': TMDB_USER_AGENT
+        }
+      });
+      if (!response.ok) {
+        const status = Number(response.status);
+        if (attempt < TMDB_FETCH_RETRIES && shouldRetryStatus(status)) {
+          await new Promise((resolve) => setTimeout(resolve, 220 * (attempt + 1)));
+          continue;
+        }
+
+        const err = new Error(`TMDB ${status}`);
+        err.status = status;
+        throw err;
+      }
+
+      const data = await response.json();
+      cache.set(cacheKey, data, ttlSeconds);
+      clearTmdbUnavailable();
+      return data;
+    } catch (error) {
+      const timedOut = error?.name === 'AbortError';
+      const networkCode = String(error?.code || error?.cause?.code || '');
+      const status = Number(error?.status || 0);
+      const isNetworkError = timedOut || ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND'].includes(networkCode);
+      const canRetry = attempt < TMDB_FETCH_RETRIES && (isNetworkError || shouldRetryStatus(status));
+
+      if (canRetry) {
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+        continue;
+      }
+
+      const err = new Error(timedOut ? 'TMDB request timed out' : (error?.message || 'TMDB fetch failed'));
+      err.status = status || (timedOut ? 504 : 502);
+      lastError = err;
+      break;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  throw lastError || new Error('TMDB fetch failed');
+}
+
+async function fetchTmdbDetailBundle(mediaType, tmdbId) {
+  const basePath = `/${mediaType}/${tmdbId}`;
+  let details = null;
+
+  try {
+    details = await tmdbGet(basePath, { append_to_response: 'videos,credits,watch/providers' });
+  } catch (error) {
+    if (Number(error?.status) === 404) throw error;
+    details = await tmdbGet(basePath);
+  }
+
+  const [videos, credits, watchProviders, similar] = await Promise.all([
+    details?.videos?.results ? Promise.resolve(details.videos) : tmdbGet(`${basePath}/videos`, {}, 90).catch(() => ({ results: [] })),
+    details?.credits?.cast ? Promise.resolve(details.credits) : tmdbGet(`${basePath}/credits`, {}, 90).catch(() => ({ cast: [], crew: [] })),
+    details?.['watch/providers']?.results
+      ? Promise.resolve(details['watch/providers'])
+      : tmdbGet(`${basePath}/watch/providers`, {}, 120).catch(() => ({ results: {} })),
+    tmdbGet(`${basePath}/similar`, { page: 1 }, 120).catch(() => ({ results: [] }))
+  ]);
+
+  return {
+    details: {
+      ...details,
+      videos: videos || { results: [] },
+      credits: credits || { cast: [], crew: [] },
+      watchProviders: watchProviders || { results: {} }
+    },
+    similar: similar || { results: [] }
+  };
+}
+
+function normalizeDbCastEntries(cast = []) {
+  const list = Array.isArray(cast) ? cast : [];
+
+  return list
+    .map((entry) => {
+      if (!entry) return null;
+
+      if (typeof entry === 'string') {
+        return { name: entry, character: 'Cast' };
+      }
+
+      const name = entry.name || entry.original_name;
+      if (!name) return null;
+
+      return {
+        name,
+        character: entry.character || entry.role || entry.job || 'Cast',
+        id: Number.isFinite(Number(entry.id)) ? Number(entry.id) : undefined,
+        profile_path: entry.profile_path || null
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 10);
+}
+
+function buildDbFallbackBundle(dbMovie, requestedType = 'movie') {
+  const isTV = Boolean(dbMovie?.isTV);
+  const mediaType = isTV ? 'tv' : (requestedType === 'tv' || requestedType === 'series' ? 'tv' : 'movie');
+  const fallbackDirector = String(dbMovie?.director || '').trim();
+
+  return {
+    tmdbId: Number(dbMovie?.tmdbId || 0),
+    isTV,
+    mediaType,
+    source: 'db-fallback',
+    details: {
+      overview: String(dbMovie?.description || '').trim(),
+      tagline: '',
+      genres: Array.isArray(dbMovie?.genre) ? dbMovie.genre.map((name) => ({ name })) : [],
+      runtime: null,
+      episode_run_time: [],
+      imdb_id: String(dbMovie?.imdbId || '').trim(),
+      created_by: [],
+      videos: { results: [] },
+      credits: {
+        cast: normalizeDbCastEntries(dbMovie?.cast),
+        crew: fallbackDirector ? [{ name: fallbackDirector, job: 'Director' }] : []
+      },
+      watchProviders: { results: {} }
+    },
+    similar: { results: [] }
+  };
+}
+
+function isValidImdbId(imdbId = '') {
+  return /^tt\d+$/i.test(String(imdbId || '').trim());
+}
+
+function extractImdbId(value = '') {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  if (isValidImdbId(raw)) {
+    return raw.toLowerCase();
+  }
+
+  try {
+    const parsed = new URL(raw);
+    const match = String(parsed.pathname || '').match(/\/title\/(tt\d+)/i);
+    return match?.[1] ? match[1].toLowerCase() : '';
+  } catch (_err) {
+    return '';
+  }
+}
+
+function buildImdbTitleUrl(imdbId = '') {
+  const normalized = extractImdbId(imdbId);
+  if (!normalized) return '';
+  return `https://www.imdb.com/title/${normalized}`;
+}
+
+function orderedMediaTypes(preferredType = 'movie') {
+  const requested = String(preferredType || 'movie').toLowerCase();
+  return (requested === 'tv' || requested === 'series')
+    ? ['tv', 'movie']
+    : ['movie', 'tv'];
+}
+
+async function resolveImdbFromTmdbId(tmdbId, preferredType = 'movie') {
+  const numericTmdbId = Number(tmdbId);
+  if (!Number.isFinite(numericTmdbId) || numericTmdbId <= 0) return null;
+
+  const mediaTypes = orderedMediaTypes(preferredType);
+
+  for (const mediaType of mediaTypes) {
+    try {
+      if (mediaType === 'movie') {
+        const external = await tmdbGet(`/movie/${numericTmdbId}/external_ids`, {}, 120).catch(() => null);
+        let imdbId = extractImdbId(external?.imdb_id);
+        if (!imdbId) {
+          const details = await tmdbGet(`/movie/${numericTmdbId}`);
+          imdbId = extractImdbId(details?.imdb_id);
+        }
+        if (imdbId) {
+          return {
+            imdbId,
+            imdbUrl: buildImdbTitleUrl(imdbId),
+            mediaType,
+            tmdbId: numericTmdbId,
+            source: 'tmdb-id'
+          };
+        }
+      } else {
+        const external = await tmdbGet(`/tv/${numericTmdbId}/external_ids`);
+        const imdbId = extractImdbId(external?.imdb_id);
+        if (imdbId) {
+          return {
+            imdbId,
+            imdbUrl: buildImdbTitleUrl(imdbId),
+            mediaType,
+            tmdbId: numericTmdbId,
+            source: 'tmdb-external-ids'
+          };
+        }
+      }
+    } catch (error) {
+      if (Number(error?.status) === 404) continue;
+      throw error;
+    }
+  }
+
+  return null;
+}
+
+async function resolveImdbByTitle(title, year, preferredType = 'movie') {
+  const cleanTitle = String(title || '').trim();
+  if (!cleanTitle) return null;
+
+  const mediaTypes = orderedMediaTypes(preferredType);
+
+  for (const mediaType of mediaTypes) {
+    const params = {
+      query: cleanTitle,
+      page: 1,
+      include_adult: 'false'
+    };
+
+    const parsedYear = Number(year);
+    if (Number.isFinite(parsedYear) && parsedYear > 1800) {
+      if (mediaType === 'movie') params.year = parsedYear;
+      if (mediaType === 'tv') params.first_air_date_year = parsedYear;
+    }
+
+    try {
+      const searchData = await tmdbGet(`/search/${mediaType}`, params, 60);
+      const candidates = Array.isArray(searchData?.results) ? searchData.results.slice(0, 5) : [];
+
+      for (const candidate of candidates) {
+        const candidateId = Number(candidate?.id);
+        if (!Number.isFinite(candidateId) || candidateId <= 0) continue;
+
+        const resolved = await resolveImdbFromTmdbId(candidateId, mediaType);
+        if (resolved?.imdbId) {
+          return {
+            ...resolved,
+            source: 'tmdb-search'
+          };
+        }
+      }
+    } catch (error) {
+      if (Number(error?.status) === 404) continue;
+      throw error;
+    }
+  }
+
+  return null;
+}
+
+router.get('/resolve-imdb', async (req, res) => {
+  try {
+    const tmdbId = Number(req.query.tmdbId);
+    const title = String(req.query.title || '').trim();
+    const year = Number(req.query.year);
+    const requestedType = String(req.query.type || 'movie').toLowerCase();
+    const hasTmdbId = Number.isFinite(tmdbId) && tmdbId > 0;
+    const hasTitle = Boolean(title);
+
+    if (!hasTmdbId && !hasTitle) {
+      return res.status(400).json({ message: 'tmdbId or title is required', found: false });
+    }
+
+    if (hasTmdbId) {
+      const dbByTmdb = await Movie.findOne({ tmdbId })
+        .select('-_id tmdbId imdbId isTV title year')
+        .lean();
+
+      const imdbId = extractImdbId(dbByTmdb?.imdbId);
+      if (imdbId) {
+        return res.json({
+          found: true,
+          imdbId,
+          imdbUrl: buildImdbTitleUrl(imdbId),
+          tmdbId,
+          mediaType: dbByTmdb?.isTV ? 'tv' : 'movie',
+          source: 'db-tmdb'
+        });
+      }
+    }
+
+    if (hasTitle) {
+      const dbFilter = {
+        title: new RegExp(`^${escapeRegex(title)}$`, 'i')
+      };
+      if (Number.isFinite(year) && year > 1800) dbFilter.year = year;
+      if (requestedType === 'tv' || requestedType === 'series') dbFilter.isTV = true;
+      if (requestedType === 'movie') dbFilter.isTV = false;
+
+      const dbByTitle = await Movie.findOne(dbFilter)
+        .select('-_id tmdbId imdbId isTV title year')
+        .lean();
+
+      const imdbId = extractImdbId(dbByTitle?.imdbId);
+      if (imdbId) {
+        return res.json({
+          found: true,
+          imdbId,
+          imdbUrl: buildImdbTitleUrl(imdbId),
+          tmdbId: Number(dbByTitle?.tmdbId || 0),
+          mediaType: dbByTitle?.isTV ? 'tv' : 'movie',
+          source: 'db-title'
+        });
+      }
+    }
+
+    let resolved = null;
+
+    if (hasTmdbId) {
+      try {
+        resolved = await resolveImdbFromTmdbId(tmdbId, requestedType);
+      } catch (_error) {
+        markTmdbUnavailable();
+      }
+    }
+
+    if (!resolved && hasTitle) {
+      try {
+        resolved = await resolveImdbByTitle(title, year, requestedType);
+      } catch (_error) {
+        markTmdbUnavailable();
+      }
+    }
+
+    if (resolved?.imdbId) {
+      return res.json({
+        found: true,
+        imdbId: resolved.imdbId,
+        imdbUrl: resolved.imdbUrl,
+        tmdbId: Number(resolved.tmdbId || (hasTmdbId ? tmdbId : 0)),
+        mediaType: resolved.mediaType || ((requestedType === 'tv' || requestedType === 'series') ? 'tv' : 'movie'),
+        source: resolved.source || 'tmdb'
+      });
+    }
+
+    return res.json({ found: false, imdbId: '', imdbUrl: '' });
+  } catch (error) {
+    const status = Number(error?.status) || 500;
+    return res.status(status).json({ message: 'Failed to resolve IMDb link', found: false, error: error.message });
+  }
+});
 
 router.get('/meta/genres', async (_req, res) => {
   try {
@@ -299,6 +712,75 @@ router.get('/search', async (req, res) => {
     return res.json(scored);
   } catch (error) {
     return res.status(500).json({ message: 'Failed to search movies', error: error.message });
+  }
+});
+
+router.get('/:tmdbId/details', async (req, res) => {
+  try {
+    const tmdbId = Number(req.params.tmdbId);
+    if (!Number.isFinite(tmdbId) || tmdbId <= 0) {
+      return res.status(400).json({ message: 'Invalid tmdbId' });
+    }
+
+    const requestedType = String(req.query.type || 'movie').toLowerCase();
+    const orderedTypes = (requestedType === 'tv' || requestedType === 'series')
+      ? ['tv', 'movie']
+      : ['movie', 'tv'];
+
+    let resolvedType = null;
+    let details = null;
+    let similar = { results: [] };
+    let lastTmdbError = null;
+
+    for (const mediaType of orderedTypes) {
+      try {
+        const bundle = await fetchTmdbDetailBundle(mediaType, tmdbId);
+        details = bundle.details;
+        similar = bundle.similar;
+        resolvedType = mediaType;
+        break;
+      } catch (error) {
+        lastTmdbError = error;
+        if (Number(error?.status) === 404) continue;
+        markTmdbUnavailable();
+        continue;
+      }
+    }
+
+    if (!details || !resolvedType) {
+      const dbMovie = await Movie.findOne({ tmdbId })
+        .select('-_id tmdbId title language langCode genre year rating popularity posterUrl backdropUrl description isTV cast director imdbId')
+        .lean();
+
+      if (dbMovie) {
+        return res.json(buildDbFallbackBundle(dbMovie, requestedType));
+      }
+
+      const status = Number(lastTmdbError?.status);
+      if (status && status !== 404) {
+        return res.status(status).json({ message: 'Failed to load detail bundle', error: lastTmdbError.message });
+      }
+
+      return res.status(404).json({ message: 'TMDB title not found for this id' });
+    }
+
+    const safeDetails = {
+      ...details,
+      videos: details.videos || { results: [] },
+      credits: details.credits || { cast: [], crew: [] },
+      watchProviders: details['watch/providers'] || { results: {} }
+    };
+
+    return res.json({
+      tmdbId,
+      isTV: resolvedType === 'tv',
+      mediaType: resolvedType,
+      details: safeDetails,
+      similar: similar || { results: [] }
+    });
+  } catch (error) {
+    const status = Number(error?.status) || 500;
+    return res.status(status).json({ message: 'Failed to load detail bundle', error: error.message });
   }
 });
 
