@@ -97,6 +97,9 @@ let authMode = 'login';
 let trailerPrefetchObserver = null;
 let searchAbortController = null;
 let searchRequestToken = 0;
+let tmdbSyncInProgress = false;
+
+const TMDB_SYNC_TOKEN_STORAGE_KEY = 'tmdbSyncToken';
 
 // Page state: 'home' | 'movies' | 'series' | 'detail'
 let currentPage = 'home';
@@ -793,6 +796,97 @@ function openProfileMenu() {
       }
     });
   }, 50);
+}
+
+async function triggerTmdbManualSync() {
+  if (tmdbSyncInProgress) {
+    showToast('⏳ TMDB sync is already running');
+    return;
+  }
+
+  const syncBtn = document.getElementById('tmdbSyncBtn');
+  const previousBtnHtml = syncBtn?.innerHTML || '';
+
+  let syncToken = String(localStorage.getItem(TMDB_SYNC_TOKEN_STORAGE_KEY) || '').trim();
+  if (!syncToken) {
+    const entered = window.prompt('Enter TMDB sync token (leave blank for local/dev):', '');
+    if (entered === null) return;
+    syncToken = String(entered || '').trim();
+    if (syncToken) {
+      localStorage.setItem(TMDB_SYNC_TOKEN_STORAGE_KEY, syncToken);
+    }
+  }
+
+  tmdbSyncInProgress = true;
+  if (syncBtn) {
+    syncBtn.disabled = true;
+    syncBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+  }
+
+  showToast('⏳ Fetching latest TMDB titles...');
+
+  try {
+    const response = await fetch(`${API_BASE}/movies/sync/tmdb`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(syncToken ? { 'x-sync-token': syncToken } : {})
+      },
+      body: JSON.stringify({})
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (response.status === 401) {
+        localStorage.removeItem(TMDB_SYNC_TOKEN_STORAGE_KEY);
+        showToast('❌ Invalid sync token. Please try again.');
+        return;
+      }
+
+      showToast(`❌ ${payload?.message || `Sync failed (HTTP ${response.status})`}`);
+      return;
+    }
+
+    // Bust short-lived in-browser caches so new rows render immediately.
+    getResponseCache.clear();
+    inflightGetRequests.clear();
+    Object.keys(homeCache).forEach((key) => {
+      homeCache[key] = null;
+    });
+
+    if (homeSectionObserver) {
+      homeSectionObserver.disconnect();
+      homeSectionObserver = null;
+    }
+
+    homeRowsLoaded = false;
+    document.querySelectorAll('.home-row[data-section-key]').forEach((row) => {
+      row.setAttribute('data-loaded', 'false');
+    });
+
+    if (currentPage === 'movies') {
+      applyMoviesPageFilters();
+    } else if (currentPage === 'series') {
+      applySeriesFilters();
+    } else {
+      const primaryLang = currentUser?.preferredLanguages?.[0] || 'all';
+      loadTopNow(primaryLang).catch(() => {});
+      refreshPersonalizedHome().catch(() => {});
+    }
+
+    const stats = payload?.stats || {};
+    const inserted = Number(stats.upserted || 0);
+    const updated = Number(stats.modified || 0);
+    showToast(`✅ TMDB sync complete: ${inserted} new, ${updated} updated`);
+  } catch (_error) {
+    showToast('❌ TMDB sync request failed');
+  } finally {
+    tmdbSyncInProgress = false;
+    if (syncBtn) {
+      syncBtn.disabled = false;
+      syncBtn.innerHTML = previousBtnHtml || '<i class="bi bi-cloud-download"></i>';
+    }
+  }
 }
 
 function openChangeLanguagesModal() {

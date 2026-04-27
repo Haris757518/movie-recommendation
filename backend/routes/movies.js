@@ -2,6 +2,7 @@ const express = require('express');
 const NodeCache = require('node-cache');
 const https = require('https');
 const Movie = require('../models/Movie');
+const { syncTmdbCatalog } = require('../services/tmdbSync');
 
 const router = express.Router();
 const cache = new NodeCache({ stdTTL: 300, checkperiod: 120 });
@@ -41,6 +42,15 @@ function clearTmdbUnavailable() {
 
 function isTmdbTemporarilyUnavailable() {
   return cache.get(TMDB_UNAVAILABLE_CACHE_KEY) === true;
+}
+
+function invalidateMovieCaches() {
+  const keys = cache.keys();
+  keys.forEach((key) => {
+    if (key.startsWith('movies:') || key === 'meta:genres') {
+      cache.del(key);
+    }
+  });
 }
 
 function escapeRegex(value = '') {
@@ -715,6 +725,31 @@ router.get('/search', async (req, res) => {
   }
 });
 
+router.post('/sync/tmdb', async (req, res) => {
+  try {
+    const expectedToken = String(process.env.TMDB_SYNC_TOKEN || '').trim();
+    const incomingToken = String(req.headers['x-sync-token'] || '').trim();
+
+    if (expectedToken && incomingToken !== expectedToken) {
+      return res.status(401).json({ message: 'Invalid sync token' });
+    }
+
+    if (!expectedToken && process.env.NODE_ENV === 'production') {
+      return res.status(503).json({ message: 'TMDB sync token is not configured' });
+    }
+
+    const stats = await syncTmdbCatalog(req.body || {});
+    invalidateMovieCaches();
+
+    return res.json({
+      message: 'TMDB sync completed',
+      stats
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'TMDB sync failed', error: error.message });
+  }
+});
+
 router.get('/:tmdbId/details', async (req, res) => {
   try {
     const tmdbId = Number(req.params.tmdbId);
@@ -862,7 +897,9 @@ router.get('/', async (req, res) => {
     }
 
     // ── Year ────────────────────────────────────────────────────────────────
-    if (req.query.year && req.query.year !== 'all') {
+    const hasExplicitYear = Boolean(req.query.year && req.query.year !== 'all');
+
+    if (hasExplicitYear) {
       const parsedYear = Number(req.query.year);
       if (Number.isFinite(parsedYear)) {
         filter.year = parsedYear;
@@ -871,7 +908,7 @@ router.get('/', async (req, res) => {
       let minYear = null;
 
       if (req.query.latest === 'true') {
-        minYear = 2022;
+        minYear = new Date().getFullYear() - 2;
       }
 
       if (req.query.minYear) {
@@ -895,6 +932,20 @@ router.get('/', async (req, res) => {
     }
 
     const sortMode = String(req.query.sort || 'trending').toLowerCase();
+
+    // Keep "latest" focused on released titles by default; allow future titles only when explicitly requested.
+    if (sortMode === 'latest' && req.query.includeUpcoming !== 'true' && !hasExplicitYear) {
+      const currentYear = new Date().getFullYear();
+
+      if (filter.year && typeof filter.year === 'object') {
+        filter.year = {
+          ...filter.year,
+          $lte: currentYear
+        };
+      } else if (!filter.year) {
+        filter.year = { $lte: currentYear };
+      }
+    }
 
     // Exclude soap operas, news, talk shows — merge with existing genre filter using $and
     if (filter.genre) {
@@ -1129,6 +1180,7 @@ router.post('/bulk', async (req, res) => {
     }
 
     const result = await Movie.bulkWrite(ops, { ordered: false });
+    invalidateMovieCaches();
     return res.status(201).json({
       message: 'Bulk import completed',
       insertedOrUpdated: ops.length,

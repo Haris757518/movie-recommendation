@@ -8,6 +8,7 @@ const moviesRoutes = require('./routes/movies');
 const authRoutes = require('./routes/auth');
 const usersRoutes = require('./routes/users');
 const recommendationRoutes = require('./routes/recommendation');
+const { startTmdbAutoSync } = require('./services/tmdbSync');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -50,6 +51,7 @@ async function startServer() {
 
     app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);
+      startTmdbAutoSync(console);
     });
   } catch (error) {
     console.error('Server startup failed:', error.message);
